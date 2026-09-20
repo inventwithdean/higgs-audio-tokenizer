@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 #[derive(Serialize, Deserialize)]
 pub struct HubertConfig {
@@ -44,77 +43,4 @@ pub struct HubertConfig {
     pub pad_token_id: usize,
     pub use_weighted_layer_sum: bool,
     pub vocab_size: usize,
-}
-
-pub fn get_config() -> HubertConfig {
-    serde_json::from_value::<HubertConfig>(json!(
-    {
-        "activation_dropout": 0.1,
-        "apply_spec_augment": true,
-        "attention_dropout": 0.1,
-        "bos_token_id": 1,
-        "classifier_proj_size": 256,
-        "conv_bias": false,
-        "conv_dim": [
-          512,
-          512,
-          512,
-          512,
-          512,
-          512,
-          512
-        ],
-        "conv_kernel": [
-          10,
-          3,
-          3,
-          3,
-          3,
-          2,
-          2
-        ],
-        "conv_pos_batch_norm": false,
-        "conv_stride": [
-          5,
-          2,
-          2,
-          2,
-          2,
-          2,
-          2
-        ],
-        "ctc_loss_reduction": "sum",
-        "ctc_zero_infinity": false,
-        "do_stable_layer_norm": false,
-        "eos_token_id": 2,
-        "feat_extract_activation": "gelu",
-        "feat_extract_norm": "group",
-        "feat_proj_dropout": 0.0,
-        "feat_proj_layer_norm": true,
-        "final_dropout": 0.1,
-        "hidden_act": "gelu",
-        "hidden_dropout": 0.1,
-        "hidden_size": 768,
-        "initializer_range": 0.02,
-        "intermediate_size": 3072,
-        "layer_norm_eps": 1e-05,
-        "layerdrop": 0.1,
-        "mask_feature_length": 10,
-        "mask_feature_min_masks": 0,
-        "mask_feature_prob": 0.0,
-        "mask_time_length": 10,
-        "mask_time_min_masks": 2,
-        "mask_time_prob": 0.0,
-        "model_type": "hubert",
-        "num_attention_heads": 12,
-        "num_conv_pos_embedding_groups": 16,
-        "num_conv_pos_embeddings": 128,
-        "num_feat_extract_layers": 7,
-        "num_hidden_layers": 12,
-        "pad_token_id": 0,
-        "use_weighted_layer_sum": false,
-        "vocab_size": 32
-      }
-        ))
-    .unwrap()
 }

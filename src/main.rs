@@ -1,7 +1,8 @@
 #![recursion_limit = "256"]
 
-use burn::backend::Wgpu;
-use burn_store::{KeyRemapper, ModuleSnapshot, PyTorchToBurnAdapter, SafetensorsStore};
+use burn::{Tensor, backend::Wgpu, tensor::TensorData};
+use burn_store::{ModuleSnapshot, PyTorchToBurnAdapter, SafetensorsStore};
+use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 
 use crate::tokenizer::HiggsAudioV2TokenizerModelConfig;
 mod config;
@@ -10,6 +11,38 @@ mod hubert;
 mod residual_vector_quantization;
 mod semantic_encoder;
 mod tokenizer;
+
+use audioadapter::Adapter;
+use audioadapter_buffers::direct::InterleavedSlice;
+use rubato::{Fft, FixedSync, Resampler, audioadapter};
+use std::error::Error;
+
+pub fn resample_audio(
+    input: &[f32],
+    source_rate: usize,
+    target_rate: usize,
+    channels: usize,
+) -> Result<Vec<f32>, Box<dyn Error + Send + Sync>> {
+    let input_frames = input.len() / channels;
+
+    let mut resampler = Fft::<f32>::new(source_rate, target_rate, 1024, channels, FixedSync::Both)?;
+
+    let input_adapter = InterleavedSlice::new(input, channels, input_frames)?;
+
+    let output_adapter = resampler.process_all(&input_adapter, input_frames, None)?;
+
+    let out_frames = output_adapter.frames();
+    let out_channels = output_adapter.channels();
+    let mut out_vec = Vec::with_capacity(out_frames * out_channels);
+
+    for frame in 0..out_frames {
+        for chan in 0..out_channels {
+            out_vec.push(output_adapter.read_sample(chan, frame).unwrap());
+        }
+    }
+
+    Ok(out_vec)
+}
 
 fn main() {
     type MyBackend = Wgpu<f32, i32>;
@@ -20,8 +53,6 @@ fn main() {
         HiggsAudioV2TokenizerModelConfig::new().init::<MyBackend>(&model_config, &device);
 
     println!("{:?}", tokenizer);
-
-    // let remapper = KeyRemapper::new();
 
     let mut store = SafetensorsStore::from_file("higgs_audio_tokenizer.safetensors")
         .with_from_adapter(PyTorchToBurnAdapter);
@@ -36,4 +67,76 @@ fn main() {
     if result.is_success() {
         println!("All tensors loaded successfully!");
     }
+
+    let mut reader = WavReader::open("test.wav").unwrap();
+    let spec = reader.spec();
+    println!(
+        "Loaded test.wav: {} Hz, {} channels, {} bits",
+        spec.sample_rate, spec.channels, spec.bits_per_sample
+    );
+    let num_channels = spec.channels as usize;
+    let original_sample_rate = spec.sample_rate as usize;
+
+    let samples: Vec<f32> = match spec.sample_format {
+        SampleFormat::Float => reader.samples::<f32>().map(|s| s.unwrap()).collect(),
+        SampleFormat::Int => {
+            let max_val = (1 << (spec.bits_per_sample - 1)) as f32;
+            reader
+                .samples::<i32>()
+                .map(|s| s.unwrap() as f32 / max_val)
+                .collect()
+        }
+    };
+
+    let target_base_rate = 24000;
+    let resampled = resample_audio(
+        &samples,
+        original_sample_rate,
+        target_base_rate,
+        num_channels,
+    )
+    .unwrap();
+    let num_frames = resampled.len() / num_channels;
+
+    let mut planar_samples = vec![0.0f32; resampled.len()];
+    for t in 0..num_frames {
+        for c in 0..num_channels {
+            planar_samples[c * num_frames + t] = resampled[t * num_channels + c];
+        }
+    }
+
+    let input_tensor = Tensor::<MyBackend, 3>::from_data(
+        TensorData::new(planar_samples, [1, num_channels, num_frames]),
+        &device,
+    );
+
+    let codes = tokenizer.encode(input_tensor);
+
+    println!("Tokens shape: {:?}", codes.shape());
+
+    let reconstructed_tensor = tokenizer.decode(codes);
+
+    let recon_data = reconstructed_tensor.to_data();
+    let recon_slice = recon_data.as_slice::<f32>().unwrap();
+
+    let out_spec = WavSpec {
+        channels: num_channels as u16,
+        sample_rate: spec.sample_rate,
+        bits_per_sample: 32,
+        sample_format: SampleFormat::Float,
+    };
+
+    let mut writer = WavWriter::create("reconstructed.wav", out_spec).unwrap();
+
+    let recon_frames = recon_slice.len() / num_channels;
+
+    for t in 0..recon_frames {
+        for c in 0..num_channels {
+            let sample = recon_slice[c * recon_frames + t];
+            writer.write_sample(sample).unwrap();
+        }
+    }
+    writer.finalize().unwrap();
+
+    println!("Successfully saved reconstructed.wav!");
 }
