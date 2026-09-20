@@ -1,0 +1,114 @@
+// Reference: https://github.com/huggingface/transformers/blob/main/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py
+use burn::{
+    Tensor,
+    config::Config,
+    module::Module,
+    nn::{Linear, LinearConfig},
+    tensor::{Int, backend::Backend, ops::PadMode, s},
+};
+
+use crate::{
+    config::HiggsAudioV2TokenizerConfig,
+    dac::{
+        decoder::{DacDecoder, DacDecoderConfig},
+        encoder::{DacEncoder, DacEncoderConfig},
+    },
+    hubert::model::{HubertModel, HubertModelConfig},
+    residual_vector_quantization::{
+        HiggsAudioV2TokenizerResidualVectorQuantization,
+        HiggsAudioV2TokenizerResidualVectorQuantizationConfig,
+    },
+    semantic_encoder::{SemanticEncoder, SemanticEncoderConfig},
+};
+
+#[derive(Module, Debug)]
+pub struct HiggsAudioV2TokenizerModel<B: Backend> {
+    acoustic_encoder: DacEncoder<B>,
+    acoustic_decoder: DacDecoder<B>,
+    encoder_semantic: SemanticEncoder<B>,
+    semantic_model: HubertModel<B>,
+    fc: Linear<B>,
+    // fc1: Linear<B>, // Used for training for HuBERT features reconstruction
+    fc2: Linear<B>,
+    quantizer: HiggsAudioV2TokenizerResidualVectorQuantization<B>,
+    semantic_downsample_factor: usize,
+}
+
+impl<B: Backend> HiggsAudioV2TokenizerModel<B> {
+    pub fn extract_semantic_features(&self, input_values: Tensor<B, 3>) -> Tensor<B, 3> {
+        // (B, 1, T)
+        // ⚠️ sample_rate is 24000Hz while semantic_sample_rate is 16000
+        let mut input_values = input_values.slice(s![.., 0..1, ..]); // Get 1st channel, if it's stereo
+        input_values = input_values.pad([(160, 160)], PadMode::Constant(0.0));
+
+        let hidden_states = self.semantic_model.forward(input_values); // Get hidden_states
+        // Stack into [B, 13, T, C]
+        let stacked: Tensor<B, 4> = Tensor::stack(hidden_states, 1);
+        let mut semantic_features = stacked.mean_dim(1).squeeze_dim(1);
+        if self.semantic_downsample_factor > 1 {
+            semantic_features =
+                semantic_features.slice(s![..,..;self.semantic_downsample_factor,..]);
+        }
+        semantic_features
+    }
+
+    pub fn encode(&self, input_values: Tensor<B, 3>) -> Tensor<B, 3, Int> {
+        let e_semantic_input = self.extract_semantic_features(input_values.clone());
+        let e_semantic = self.encoder_semantic.forward(e_semantic_input.transpose());
+
+        let e_acoustic = self.acoustic_encoder.forward(input_values);
+
+        let mut embeddings = Tensor::cat(vec![e_acoustic, e_semantic], 1);
+        embeddings = self.fc.forward(embeddings.transpose()).transpose();
+        let audio_codes = self.quantizer.encode(embeddings); // (B, NumQuantizers, T)
+
+        audio_codes
+    }
+
+    pub fn decode(&self, audio_codes: Tensor<B, 3, Int>) -> Tensor<B, 3> {
+        // audio_codes: (B, NumQuantizers, T)
+        let quantized = self.quantizer.decode(audio_codes);
+        let quantized_acoustic = self.fc2.forward(quantized.transpose()).transpose();
+        self.acoustic_decoder.forward(quantized_acoustic)
+    }
+
+}
+
+#[derive(Config, Debug)]
+pub struct HiggsAudioV2TokenizerModelConfig {}
+
+impl HiggsAudioV2TokenizerModelConfig {
+    pub fn init<B: Backend>(
+        &self,
+        config: &HiggsAudioV2TokenizerConfig,
+        device: &B::Device,
+    ) -> HiggsAudioV2TokenizerModel<B> {
+        let hidden_size =
+            config.acoustic_model_config.hidden_size + config.semantic_model_config.hidden_size;
+
+        let hop_length: usize = config
+            .acoustic_model_config
+            .downsampling_ratios
+            .iter()
+            .product();
+
+        let semantic_downsample_factor = hop_length
+            / (config.sample_rate / config.semantic_sample_rate)
+            / config.downsample_factor;
+
+        HiggsAudioV2TokenizerModel {
+            acoustic_encoder: DacEncoderConfig::new().init(&config.acoustic_model_config, device),
+            acoustic_decoder: DacDecoderConfig::new().init(&config.acoustic_model_config, device),
+            encoder_semantic: SemanticEncoderConfig::new().init(config, device),
+            semantic_model: HubertModelConfig::new().init(&config.semantic_model_config, device),
+            fc: LinearConfig::new(hidden_size, hidden_size).init(device),
+            // fc1: LinearConfig::new(hidden_size, config.semantic_model_config.hidden_size)
+            //     .init(device),
+            fc2: LinearConfig::new(hidden_size, config.acoustic_model_config.hidden_size)
+                .init(device),
+            quantizer: HiggsAudioV2TokenizerResidualVectorQuantizationConfig::new()
+                .init(config, device),
+            semantic_downsample_factor,
+        }
+    }
+}

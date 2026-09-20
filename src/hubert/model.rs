@@ -17,7 +17,7 @@ pub struct HubertModel<B: Backend> {
 }
 
 impl<B: Backend> HubertModel<B> {
-    pub fn forward(&self, input_values: Tensor<B, 3>) -> Tensor<B, 3> {
+    pub fn forward(&self, input_values: Tensor<B, 3>) -> Vec<Tensor<B, 3>> {
         // input_values: (B, C, T)
         let mut extract_features = self.feature_extractor.forward(input_values);
         extract_features = extract_features.transpose(); // (B, T, C)

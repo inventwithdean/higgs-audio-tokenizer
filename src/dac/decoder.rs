@@ -16,6 +16,7 @@ use crate::dac::{
 
 // Reference: https://github.com/huggingface/transformers/blob/main/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py#L477
 // DAC implemented in HiggsAudioV2Tokenizer is slightly different from the HF version
+// No tanh activation in the final decoder output
 
 #[derive(Module, Debug)]
 pub struct DacDecoder<B: Backend> {

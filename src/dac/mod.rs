@@ -1,4 +1,4 @@
 mod blocks;
-mod config;
-mod decoder;
-mod encoder;
+pub mod config;
+pub mod decoder;
+pub mod encoder;

@@ -333,14 +333,19 @@ pub struct Wav2Vec2Encoder<B: Backend> {
 }
 
 impl<B: Backend> Wav2Vec2Encoder<B> {
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
+    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Vec<Tensor<B, 3>> {
         let position_embeddings = self.pos_conv_embed.forward(hidden_states.clone());
         let mut hidden_states = hidden_states + position_embeddings;
         hidden_states = self.layer_norm.forward(hidden_states);
+
+        let mut all_hidden_states = vec![];
+        all_hidden_states.push(hidden_states.clone());
+
         for layer in &self.layers {
             hidden_states = layer.forward(hidden_states);
+            all_hidden_states.push(hidden_states.clone());
         }
-        hidden_states
+        all_hidden_states
     }
 }
 
