@@ -1,2 +1,4 @@
 /target
 /higgs-audio-reference
+higgs_audio_tokenizer.safetensors
+test_input.safetensors

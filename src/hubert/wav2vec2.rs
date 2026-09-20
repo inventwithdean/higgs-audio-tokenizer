@@ -14,7 +14,7 @@ use burn::{
     },
 };
 
-use crate::hubert::config::HuBERTConfig;
+use crate::hubert::config::HubertConfig;
 
 // Combined Wav2Vec2GroupNormConvLayer and Wav2Vec2NoLayerNormConvLayer
 // as the only difference is the layer_norm. Burn will automatically plug in weights during loading.
@@ -43,7 +43,7 @@ impl Wav2Vec2ConvLayerConfig {
         &self,
         layer_id: usize,
         layer_norm: bool,
-        config: &HuBERTConfig,
+        config: &HubertConfig,
         device: &B::Device,
     ) -> Wav2Vec2ConvLayer<B> {
         let in_conv_dim = if layer_id > 0 {
@@ -85,6 +85,24 @@ impl<B: Backend> Wav2Vec2FeatureEncoder<B> {
     }
 }
 
+#[derive(Config, Debug)]
+pub struct Wav2Vec2FeatureEncoderConfig {}
+
+impl Wav2Vec2FeatureEncoderConfig {
+    pub fn init<B: Backend>(
+        &self,
+        config: &HubertConfig,
+        device: &B::Device,
+    ) -> Wav2Vec2FeatureEncoder<B> {
+        let mut conv_layers = vec![Wav2Vec2ConvLayerConfig::new().init(0, true, config, device)];
+        let num_feat_extract_layers = config.num_feat_extract_layers;
+        for i in 1..num_feat_extract_layers {
+            conv_layers.push(Wav2Vec2ConvLayerConfig::new().init(i, false, config, device));
+        }
+        Wav2Vec2FeatureEncoder { conv_layers }
+    }
+}
+
 #[derive(Module, Debug)]
 pub struct Wav2Vec2FeatureProjection<B: Backend> {
     layer_norm: LayerNorm<B>,
@@ -106,7 +124,7 @@ pub struct Wav2Vec2FeatureProjectionConfig {}
 impl Wav2Vec2FeatureProjectionConfig {
     pub fn init<B: Backend>(
         &self,
-        config: &HuBERTConfig,
+        config: &HubertConfig,
         device: &B::Device,
     ) -> Wav2Vec2FeatureProjection<B> {
         let d_model = config
@@ -139,7 +157,7 @@ pub struct Wav2Vec2Attention<B: Backend> {
 impl<B: Backend> Wav2Vec2Attention<B> {
     pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
         // hidden_states: [B, T, 768]
-        let [B, T, embed_dim] = hidden_states.dims();
+        let [b, t, embed_dim] = hidden_states.dims();
         let keys = self.k_proj.forward(hidden_states.clone()); // (B, T, 768)
         let queries = self.q_proj.forward(hidden_states.clone()); // (B, T, 768)
         let values = self.v_proj.forward(hidden_states.clone()); // (B, T, 768)
@@ -148,11 +166,11 @@ impl<B: Backend> Wav2Vec2Attention<B> {
         let num_heads: usize = 12;
         let head_dim: usize = 64;
 
-        let mut values = values.reshape([B, T, num_heads, head_dim]); // (B, T, 12, 64)
+        let mut values = values.reshape([b, t, num_heads, head_dim]); // (B, T, 12, 64)
         values = values.swap_dims(1, 2); // (B, 12, T, 64)
-        let mut keys = keys.reshape([B, T, num_heads, head_dim]); // (B, T, 12, 64)
+        let mut keys = keys.reshape([b, t, num_heads, head_dim]); // (B, T, 12, 64)
         keys = keys.swap_dims(1, 2); // (B, 12, T, 64)
-        let mut queries = queries.reshape([B, T, num_heads, head_dim]); // (B, T, 12, 64)
+        let mut queries = queries.reshape([b, t, num_heads, head_dim]); // (B, T, 12, 64)
         queries = queries.swap_dims(1, 2); // (B, 12, T, 64)
 
         // Transpose keys for attention
@@ -165,7 +183,7 @@ impl<B: Backend> Wav2Vec2Attention<B> {
         // (B, 12, T, T) @ (B, 12, T, 64) => (B, 12, T, 64)
         let attention = scores.matmul(values); // (B, 12, T, 64)
         let attention = attention.swap_dims(1, 2); // (B, T, 12, 64)
-        let attention = attention.reshape([B, T, embed_dim]); // (B, T, 768)
+        let attention = attention.reshape([b, t, embed_dim]); // (B, T, 768)
         self.out_proj.forward(attention)
     }
 }
@@ -176,7 +194,7 @@ pub struct Wav2Vec2AttentionConfig {}
 impl Wav2Vec2AttentionConfig {
     pub fn init<B: Backend>(
         &self,
-        config: &HuBERTConfig,
+        config: &HubertConfig,
         device: &B::Device,
     ) -> Wav2Vec2Attention<B> {
         let embed_dim = config.hidden_size;
@@ -210,7 +228,7 @@ pub struct Wav2Vec2FeedForwardConfig {}
 impl Wav2Vec2FeedForwardConfig {
     pub fn init<B: Backend>(
         &self,
-        config: &HuBERTConfig,
+        config: &HubertConfig,
         device: &B::Device,
     ) -> Wav2Vec2FeedForward<B> {
         let intermediate_size = config.intermediate_size;
@@ -248,7 +266,7 @@ pub struct Wav2Vec2EncoderLayerConfig {}
 impl Wav2Vec2EncoderLayerConfig {
     pub fn init<B: Backend>(
         &self,
-        config: &HuBERTConfig,
+        config: &HubertConfig,
         device: &B::Device,
     ) -> Wav2Vec2EncoderLayer<B> {
         let embed_dim = config.hidden_size;
@@ -291,7 +309,7 @@ pub struct Wav2Vec2PositionalConvEmbeddingConfig {}
 impl Wav2Vec2PositionalConvEmbeddingConfig {
     pub fn init<B: Backend>(
         &self,
-        config: &HuBERTConfig,
+        config: &HubertConfig,
         device: &B::Device,
     ) -> Wav2Vec2PositionalConvEmbedding<B> {
         let hidden_size = config.hidden_size;
@@ -332,7 +350,7 @@ pub struct Wav2Vec2EncoderConfig {}
 impl Wav2Vec2EncoderConfig {
     pub fn init<B: Backend>(
         &self,
-        config: &HuBERTConfig,
+        config: &HubertConfig,
         device: &B::Device,
     ) -> Wav2Vec2Encoder<B> {
         let hidden_size = config.hidden_size;

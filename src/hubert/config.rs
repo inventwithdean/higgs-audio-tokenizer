@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Serialize, Deserialize)]
-pub struct HuBERTConfig {
+pub struct HubertConfig {
     pub activation_dropout: f64,
     pub apply_spec_augment: bool,
     pub attention_dropout: f64,
@@ -46,8 +46,8 @@ pub struct HuBERTConfig {
     pub vocab_size: usize,
 }
 
-pub fn get_config() -> HuBERTConfig {
-    serde_json::from_value::<HuBERTConfig>(json!(
+pub fn get_config() -> HubertConfig {
+    serde_json::from_value::<HubertConfig>(json!(
     {
         "activation_dropout": 0.1,
         "apply_spec_augment": true,

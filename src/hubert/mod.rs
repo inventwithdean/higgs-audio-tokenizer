@@ -1,2 +1,3 @@
 mod wav2vec2;
-mod config;
+pub mod config;
+pub mod model;
