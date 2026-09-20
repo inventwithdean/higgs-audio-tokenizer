@@ -4,6 +4,7 @@ use safetensors::SafeTensors;
 
 use crate::hubert::{config::get_config, model::HubertModelConfig};
 mod hubert;
+mod dac;
 
 fn main() {
     type MyBackend = Wgpu<f32, i32>;
