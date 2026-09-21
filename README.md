@@ -4,14 +4,18 @@ A pure Rust implementation of the **Higgs Audio V2 Tokenizer** neural audio code
 
 ## Overview
 
-This repository ports the Hugging Face [`HiggsAudioV2Tokenizer`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py) architecture to Rust. It leverages Burn's modular neural network APIs and hardware-agnostic backends (using WGPU for GPU acceleration by default) to perform robust audio compression and reconstruction.
+This repository ports the Boson AI's [`HiggsAudioV2Tokenizer`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py) architecture to Rust. It leverages Burn's modular neural network APIs and hardware-agnostic backends (using WGPU for GPU acceleration by default) to perform robust audio compression and reconstruction.
 
 ## Features
 
 * **End-to-End Pipeline:** Full encoding (audio -> tokens) and decoding (tokens -> audio) capabilities.
+
 * **Hardware Agnostic:** Powered by Burn's `Wgpu` backend, allowing the model to run efficiently on any supported GPU.
+
 * **Safetensors Integration:** Directly loads pre-trained PyTorch weights via `.safetensors` utilizing `PyTorchToBurnAdapter`.
+
 * **Native Audio Resampling:** Built-in audio resampling using the `rubato` crate to match the model's required 24kHz sample rate.
+
 * **Complex Model Architecture:** Accurately implements Descript Audio Codec (DAC), HuBERT (Wav2Vec2), and Residual Vector Quantization (RVQ).
 
 ## Architecture Breakdown
@@ -67,18 +71,13 @@ The application will:
 
 1. Initialize the WGPU backend and load the model configuration.
 
-
 2. Stream weights from `model.safetensors` into the Burn module.
-
 
 3. Read `test.wav`, format it, and resample the audio to the 24,000 Hz base rate expected by the acoustic model.
 
-
 4. Run a forward pass of the `encode` method to extract discrete tokens.
 
-
 5. Run a forward pass of the `decode` method to reconstruct the audio.
-
 
 6. Save the result to `reconstructed.wav` in a 32-bit float format.
 
