@@ -9,13 +9,9 @@ This repository ports the Boson AI's [`HiggsAudioV2Tokenizer`](https://github.co
 ## Features
 
 * **End-to-End Pipeline:** Full encoding (audio -> tokens) and decoding (tokens -> audio) capabilities.
-
 * **Hardware Agnostic:** Powered by Burn's `Wgpu` backend, allowing the model to run efficiently on any supported GPU.
-
 * **Safetensors Integration:** Directly loads pre-trained PyTorch weights via `.safetensors` utilizing `PyTorchToBurnAdapter`.
-
 * **Native Audio Resampling:** Built-in audio resampling using the `rubato` crate to match the model's required 24kHz sample rate.
-
 * **Complex Model Architecture:** Accurately implements Descript Audio Codec (DAC), HuBERT (Wav2Vec2), and Residual Vector Quantization (RVQ).
 
 ## Architecture Breakdown
@@ -24,12 +20,9 @@ The `HiggsAudioV2TokenizerModel` consists of several interconnected modules:
 
 * **Acoustic Encoder/Decoder (DAC):** Handles the high-fidelity representation of the audio waveform. Implements custom Snake1d activations and 1D convolutions.
 
-
 * **Semantic Model (HuBERT):** Extracts high-level semantic meaning from the audio. Operates at a downsampled 16kHz rate and utilizes Wav2Vec2 components (Convolutions, Self-Attention, Feed-Forward).
 
-
 * **Residual Vector Quantization (RVQ):** Quantizes the fused acoustic and semantic embeddings into discrete codebook indices (tokens) for extreme compression.
-
 
 * **Feature Fusion:** Projects and combines both acoustic and semantic embeddings into a unified bottleneck.
 
@@ -39,30 +32,24 @@ The `HiggsAudioV2TokenizerModel` consists of several interconnected modules:
 
 * **Rust Toolchain:** Latest stable Rust compiler and `cargo`.
 * **Pre-trained Weights:** A valid [`model.safetensors`](https://huggingface.co/bosonai/higgs-audio-v2-tokenizer/blob/main/model.safetensors) file containing the Higgs Audio V2 Tokenizer weights placed in the root directory.
-
-
 * **Test Audio:** A valid `test.wav` file placed in the root directory.
-
 
 
 ## Usage
 
 1. **Clone the repository:**
-```bash
+```
 git clone https://github.com/inventwithdean/higgs-audio-tokenizer.git
 cd higgs-audio-tokenizer
 ```
 
-
 2. **Ensure assets are present:**
 Place your `test.wav` and `model.safetensors` in the project root.
 
-
 3. **Run the application:**
-```bash
+```
 cargo run --release
 ```
-
 
 
 ### Expected Output
@@ -80,7 +67,6 @@ The application will:
 5. Run a forward pass of the `decode` method to reconstruct the audio.
 
 6. Save the result to `reconstructed.wav` in a 32-bit float format.
-
 
 
 ## License
