@@ -54,7 +54,7 @@ fn main() {
 
     println!("{:?}", tokenizer);
 
-    let mut store = SafetensorsStore::from_file("higgs_audio_tokenizer.safetensors")
+    let mut store = SafetensorsStore::from_file("model.safetensors")
         .with_from_adapter(PyTorchToBurnAdapter);
 
     let result = tokenizer.load_from(&mut store).unwrap();

@@ -2,7 +2,7 @@
 use burn::{
     Tensor,
     config::Config,
-    module::Module,
+    module::{Module, Param},
     nn::{
         GroupNorm, GroupNormConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
         conv::{Conv1d, Conv1dConfig},
@@ -10,6 +10,8 @@ use burn::{
     tensor::{
         activation::{gelu, softmax},
         backend::Backend,
+        module::conv1d,
+        ops::ConvOptions,
         s,
     },
 };
@@ -284,12 +286,79 @@ impl Wav2Vec2EncoderLayerConfig {
     }
 }
 
+#[derive(Module, Debug)]
+pub struct WeightParametrization<B: Backend> {
+    pub original0: Param<Tensor<B, 3>>, // g: [1, 1, kernel_size]
+    pub original1: Param<Tensor<B, 3>>, // v: [out_channels, in_channels/groups, kernel_size]
+}
+
+#[derive(Module, Debug)]
+pub struct Parametrizations<B: Backend> {
+    pub weight: WeightParametrization<B>,
+}
+
+#[derive(Module, Debug)]
+pub struct WeightNormConv1d<B: Backend> {
+    pub parametrizations: Parametrizations<B>,
+    pub bias: Param<Tensor<B, 1>>,
+    pub groups: usize,
+    pub padding: usize,
+}
+
+impl<B: Backend> WeightNormConv1d<B> {
+    pub fn forward(&self, x: Tensor<B, 3>) -> Tensor<B, 3> {
+        let g = self.parametrizations.weight.original0.val();
+        let v = self.parametrizations.weight.original1.val();
+
+        let v_norm = v.clone().powf_scalar(2.0).sum_dim(0).sum_dim(1).sqrt();
+
+        let weight = v * (g / v_norm);
+        let options = ConvOptions::new([1], [self.padding], [1], self.groups);
+
+        conv1d(x, weight, Some(self.bias.val()), options)
+    }
+}
+
+#[derive(Config, Debug)]
+pub struct WeightNormConv1dConfig {
+    pub channels: usize,
+    pub kernel_size: usize,
+    pub groups: usize,
+    pub padding: usize,
+}
+
+impl WeightNormConv1dConfig {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> WeightNormConv1d<B> {
+        let in_channels_per_group = self.channels / self.groups;
+
+        let original1 = Tensor::zeros(
+            [self.channels, in_channels_per_group, self.kernel_size],
+            device,
+        );
+        let original0 = Tensor::zeros([1, 1, self.kernel_size], device);
+        let bias = Tensor::zeros([self.channels], device);
+
+        WeightNormConv1d {
+            parametrizations: Parametrizations {
+                weight: WeightParametrization {
+                    original0: Param::from_tensor(original0),
+                    original1: Param::from_tensor(original1),
+                },
+            },
+            bias: Param::from_tensor(bias),
+            groups: self.groups,
+            padding: self.padding,
+        }
+    }
+}
+
 // feat_extract_activation = gelu
 #[derive(Module, Debug)]
 pub struct Wav2Vec2PositionalConvEmbedding<B: Backend> {
-    // ⚠️: Original .pt model stores them as weight_v (The Filter Shape) and weight_g (The Magnitude)
+    // ⚠️: Original safetensors model stores them as weight_v (The Filter Shape) and weight_g (The Magnitude) by the name original1 and original0
     // When converting to safetensors, make sure to remove parametrizations
-    conv: Conv1d<B>,
+    // Actually, updated to calculate the conv at runtime so don't have to convert safetensors
+    conv: WeightNormConv1d<B>,
 }
 
 impl<B: Backend> Wav2Vec2PositionalConvEmbedding<B> {
@@ -317,9 +386,7 @@ impl Wav2Vec2PositionalConvEmbeddingConfig {
         let padding = (config.num_conv_pos_embeddings as u32 / 2) as usize;
         let groups = config.num_conv_pos_embedding_groups;
         Wav2Vec2PositionalConvEmbedding {
-            conv: Conv1dConfig::new(hidden_size, hidden_size, kernel_size)
-                .with_padding(burn::nn::PaddingConfig1d::Explicit(padding, padding))
-                .with_groups(groups)
+            conv: WeightNormConv1dConfig::new(hidden_size, kernel_size, groups, padding)
                 .init(device),
         }
     }
