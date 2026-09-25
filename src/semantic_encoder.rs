@@ -113,6 +113,7 @@ pub struct SemanticEncoder {
 
 impl SemanticEncoder {
     pub fn forward(&self, hidden_state: Tensor<3>) -> Tensor<3> {
+        // hidden_state: (B, C, T)
         let mut hidden_state = self.conv.forward(hidden_state);
         for block in &self.conv_blocks {
             hidden_state = block.forward(hidden_state);
