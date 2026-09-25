@@ -6,19 +6,19 @@ use burn::{
         PaddingConfig1d,
         conv::{Conv1d, Conv1dConfig},
     },
-    tensor::{activation::elu, backend::Backend},
+    tensor::{Device, activation::elu},
 };
 
 use crate::config::HiggsAudioV2TokenizerConfig;
 
 #[derive(Module, Debug)]
-pub struct HiggsAudioV2TokenizerResidualUnit<B: Backend> {
-    conv1: Conv1d<B>,
-    conv2: Conv1d<B>,
+pub struct HiggsAudioV2TokenizerResidualUnit {
+    conv1: Conv1d,
+    conv2: Conv1d,
 }
 
-impl<B: Backend> HiggsAudioV2TokenizerResidualUnit<B> {
-    pub fn forward(&self, hidden_state: Tensor<B, 3>) -> Tensor<B, 3> {
+impl HiggsAudioV2TokenizerResidualUnit {
+    pub fn forward(&self, hidden_state: Tensor<3>) -> Tensor<3> {
         let mut output_tensor = elu(hidden_state.clone(), 1.0);
         output_tensor = self.conv1.forward(output_tensor);
         output_tensor = elu(output_tensor, 1.0);
@@ -35,11 +35,11 @@ pub struct HiggsAudioV2TokenizerResidualUnitConfig {
 }
 
 impl HiggsAudioV2TokenizerResidualUnitConfig {
-    pub fn init<B: Backend>(
+    pub fn init(
         &self,
         config: &HiggsAudioV2TokenizerConfig,
-        device: &B::Device,
-    ) -> HiggsAudioV2TokenizerResidualUnit<B> {
+        device: &Device,
+    ) -> HiggsAudioV2TokenizerResidualUnit {
         let padding = ((config.unit_kernel_size - 1) / 2) * self.dilation;
         HiggsAudioV2TokenizerResidualUnit {
             conv1: Conv1dConfig::new(self.in_channels, self.out_channels, config.unit_kernel_size)
@@ -55,13 +55,13 @@ impl HiggsAudioV2TokenizerResidualUnitConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct HiggsAudioV2TokenizerSemanticEncoderBlock<B: Backend> {
-    res_units: Vec<HiggsAudioV2TokenizerResidualUnit<B>>,
-    conv: Conv1d<B>,
+pub struct HiggsAudioV2TokenizerSemanticEncoderBlock {
+    res_units: Vec<HiggsAudioV2TokenizerResidualUnit>,
+    conv: Conv1d,
 }
 
-impl<B: Backend> HiggsAudioV2TokenizerSemanticEncoderBlock<B> {
-    pub fn forward(&self, mut hidden_state: Tensor<B, 3>) -> Tensor<B, 3> {
+impl HiggsAudioV2TokenizerSemanticEncoderBlock {
+    pub fn forward(&self, mut hidden_state: Tensor<3>) -> Tensor<3> {
         for unit in &self.res_units {
             hidden_state = unit.forward(hidden_state);
         }
@@ -77,11 +77,11 @@ pub struct HiggsAudioV2TokenizerSemanticEncoderBlockConfig {
 }
 
 impl HiggsAudioV2TokenizerSemanticEncoderBlockConfig {
-    pub fn init<B: Backend>(
+    pub fn init(
         &self,
         config: &HiggsAudioV2TokenizerConfig,
-        device: &B::Device,
-    ) -> HiggsAudioV2TokenizerSemanticEncoderBlock<B> {
+        device: &Device,
+    ) -> HiggsAudioV2TokenizerSemanticEncoderBlock {
         let mut res_units = vec![];
         for dilation in &config.block_dilations {
             res_units.push(
@@ -106,13 +106,13 @@ impl HiggsAudioV2TokenizerSemanticEncoderBlockConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct SemanticEncoder<B: Backend> {
-    conv: Conv1d<B>,
-    conv_blocks: Vec<HiggsAudioV2TokenizerSemanticEncoderBlock<B>>,
+pub struct SemanticEncoder {
+    conv: Conv1d,
+    conv_blocks: Vec<HiggsAudioV2TokenizerSemanticEncoderBlock>,
 }
 
-impl<B: Backend> SemanticEncoder<B> {
-    pub fn forward(&self, hidden_state: Tensor<B, 3>) -> Tensor<B, 3> {
+impl SemanticEncoder {
+    pub fn forward(&self, hidden_state: Tensor<3>) -> Tensor<3> {
         let mut hidden_state = self.conv.forward(hidden_state);
         for block in &self.conv_blocks {
             hidden_state = block.forward(hidden_state);
@@ -125,11 +125,7 @@ impl<B: Backend> SemanticEncoder<B> {
 pub struct SemanticEncoderConfig {}
 
 impl SemanticEncoderConfig {
-    pub fn init<B: Backend>(
-        &self,
-        config: &HiggsAudioV2TokenizerConfig,
-        device: &B::Device,
-    ) -> SemanticEncoder<B> {
+    pub fn init(&self, config: &HiggsAudioV2TokenizerConfig, device: &Device) -> SemanticEncoder {
         let semantic_hidden_size = config.semantic_model_config.hidden_size;
         let kernel = config.kernel_size;
         let padding = kernel / 2;

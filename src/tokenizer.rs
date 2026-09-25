@@ -4,7 +4,7 @@ use burn::{
     config::Config,
     module::Module,
     nn::{Linear, LinearConfig},
-    tensor::{Int, TensorData, backend::Backend, ops::PadMode, s},
+    tensor::{Device, Int, TensorData, ops::PadMode, s},
 };
 
 use crate::{
@@ -23,20 +23,20 @@ use crate::{
 };
 
 #[derive(Module, Debug)]
-pub struct HiggsAudioV2TokenizerModel<B: Backend> {
-    acoustic_encoder: DacEncoder<B>,
-    acoustic_decoder: DacDecoder<B>,
-    encoder_semantic: SemanticEncoder<B>,
-    semantic_model: HubertModel<B>,
-    fc: Linear<B>,
+pub struct HiggsAudioV2TokenizerModel {
+    acoustic_encoder: DacEncoder,
+    acoustic_decoder: DacDecoder,
+    encoder_semantic: SemanticEncoder,
+    semantic_model: HubertModel,
+    fc: Linear,
     // fc1: Linear<B>, // Used for training for HuBERT features reconstruction
-    fc2: Linear<B>,
-    quantizer: HiggsAudioV2TokenizerResidualVectorQuantization<B>,
+    fc2: Linear,
+    quantizer: HiggsAudioV2TokenizerResidualVectorQuantization,
     semantic_downsample_factor: f64,
 }
 
-impl<B: Backend> HiggsAudioV2TokenizerModel<B> {
-    pub fn extract_semantic_features(&self, input_values: Tensor<B, 3>) -> Tensor<B, 3> {
+impl HiggsAudioV2TokenizerModel {
+    pub fn extract_semantic_features(&self, input_values: Tensor<3>) -> Tensor<3> {
         // (B, 1, T)
 
         let input_mono = input_values.slice(s![.., 0..1, ..]);
@@ -49,7 +49,7 @@ impl<B: Backend> HiggsAudioV2TokenizerModel<B> {
         let resampled_vec = resample_audio(input_slice, 24000, 16000, num_channels).unwrap();
         let new_time = resampled_vec.len() / num_channels;
 
-        let mut input_values = Tensor::<B, 3>::from_data(
+        let mut input_values = Tensor::<3>::from_data(
             TensorData::new(resampled_vec, [batch_size, num_channels, new_time]),
             &input_mono.device(),
         );
@@ -58,7 +58,7 @@ impl<B: Backend> HiggsAudioV2TokenizerModel<B> {
 
         let hidden_states = self.semantic_model.forward(input_values); // Get hidden_states
         // Stack into [B, 13, T, C]
-        let stacked: Tensor<B, 4> = Tensor::stack(hidden_states, 1);
+        let stacked: Tensor<4> = Tensor::stack(hidden_states, 1);
         let mut semantic_features = stacked.mean_dim(1).squeeze_dim(1);
         if self.semantic_downsample_factor > 1.0 {
             semantic_features =
@@ -67,7 +67,7 @@ impl<B: Backend> HiggsAudioV2TokenizerModel<B> {
         semantic_features
     }
 
-    pub fn encode(&self, input_values: Tensor<B, 3>) -> Tensor<B, 3, Int> {
+    pub fn encode(&self, input_values: Tensor<3>) -> Tensor<3, Int> {
         let e_semantic_input = self.extract_semantic_features(input_values.clone());
         let e_semantic = self.encoder_semantic.forward(e_semantic_input.transpose());
 
@@ -80,7 +80,7 @@ impl<B: Backend> HiggsAudioV2TokenizerModel<B> {
         audio_codes
     }
 
-    pub fn decode(&self, audio_codes: Tensor<B, 3, Int>) -> Tensor<B, 3> {
+    pub fn decode(&self, audio_codes: Tensor<3, Int>) -> Tensor<3> {
         // audio_codes: (B, NumQuantizers, T)
         let quantized = self.quantizer.decode(audio_codes);
         let quantized_acoustic = self.fc2.forward(quantized.transpose()).transpose();
@@ -92,11 +92,11 @@ impl<B: Backend> HiggsAudioV2TokenizerModel<B> {
 pub struct HiggsAudioV2TokenizerModelConfig {}
 
 impl HiggsAudioV2TokenizerModelConfig {
-    pub fn init<B: Backend>(
+    pub fn init(
         &self,
         config: &HiggsAudioV2TokenizerConfig,
-        device: &B::Device,
-    ) -> HiggsAudioV2TokenizerModel<B> {
+        device: &Device,
+    ) -> HiggsAudioV2TokenizerModel {
         let hidden_size =
             config.acoustic_model_config.hidden_size + config.semantic_model_config.hidden_size;
 

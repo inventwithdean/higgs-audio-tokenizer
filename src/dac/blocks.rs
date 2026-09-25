@@ -6,18 +6,18 @@ use burn::{
         PaddingConfig1d,
         conv::{Conv1d, Conv1dConfig, ConvTranspose1d, ConvTranspose1dConfig},
     },
-    tensor::{backend::Backend, s},
+    tensor::{Device, s},
 };
 
 use crate::dac::config::DacConfig;
 
 #[derive(Module, Debug)]
-pub struct Snake1d<B: Backend> {
-    alpha: Param<Tensor<B, 3>>,
+pub struct Snake1d {
+    alpha: Param<Tensor<3>>,
 }
 
-impl<B: Backend> Snake1d<B> {
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
+impl Snake1d {
+    pub fn forward(&self, hidden_states: Tensor<3>) -> Tensor<3> {
         // hidden_states: (B, C, T)
         let alpha = self.alpha.val();
         let alpha_recip = (alpha.clone() + 1e-9).recip();
@@ -32,7 +32,7 @@ pub struct Snake1dConfig {
 }
 
 impl Snake1dConfig {
-    pub fn init<B: Backend>(&self, device: &B::Device) -> Snake1d<B> {
+    pub fn init(&self, device: &Device) -> Snake1d {
         Snake1d {
             alpha: Param::from_tensor(Tensor::ones([1, self.hidden_dim, 1], device)),
         }
@@ -40,15 +40,15 @@ impl Snake1dConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct DacResidualUnit<B: Backend> {
-    snake1: Snake1d<B>,
-    conv1: Conv1d<B>,
-    snake2: Snake1d<B>,
-    conv2: Conv1d<B>,
+pub struct DacResidualUnit {
+    snake1: Snake1d,
+    conv1: Conv1d,
+    snake2: Snake1d,
+    conv2: Conv1d,
 }
 
-impl<B: Backend> DacResidualUnit<B> {
-    pub fn forward(&self, mut hidden_state: Tensor<B, 3>) -> Tensor<B, 3> {
+impl DacResidualUnit {
+    pub fn forward(&self, mut hidden_state: Tensor<3>) -> Tensor<3> {
         let mut output_tensor = hidden_state.clone();
         output_tensor = self.conv1.forward(self.snake1.forward(output_tensor));
         output_tensor = self.conv2.forward(self.snake2.forward(output_tensor));
@@ -68,7 +68,7 @@ pub struct DacResidualUnitConfig {
 }
 
 impl DacResidualUnitConfig {
-    pub fn init<B: Backend>(&self, device: &B::Device) -> DacResidualUnit<B> {
+    pub fn init(&self, device: &Device) -> DacResidualUnit {
         let pad = ((7 - 1) * self.dilation) / 2;
         DacResidualUnit {
             snake1: Snake1dConfig::new(self.dimension).init(device),
@@ -83,16 +83,16 @@ impl DacResidualUnitConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct DacEncoderBlock<B: Backend> {
-    res_unit1: DacResidualUnit<B>,
-    res_unit2: DacResidualUnit<B>,
-    res_unit3: DacResidualUnit<B>,
-    snake1: Snake1d<B>,
-    conv1: Conv1d<B>,
+pub struct DacEncoderBlock {
+    res_unit1: DacResidualUnit,
+    res_unit2: DacResidualUnit,
+    res_unit3: DacResidualUnit,
+    snake1: Snake1d,
+    conv1: Conv1d,
 }
 
-impl<B: Backend> DacEncoderBlock<B> {
-    pub fn forward(&self, mut hidden_state: Tensor<B, 3>) -> Tensor<B, 3> {
+impl DacEncoderBlock {
+    pub fn forward(&self, mut hidden_state: Tensor<3>) -> Tensor<3> {
         hidden_state = self.res_unit1.forward(hidden_state);
         hidden_state = self.res_unit2.forward(hidden_state);
         hidden_state = self.snake1.forward(self.res_unit3.forward(hidden_state));
@@ -107,7 +107,7 @@ pub struct DacEncoderBlockConfig {
 }
 
 impl DacEncoderBlockConfig {
-    pub fn init<B: Backend>(&self, config: &DacConfig, device: &B::Device) -> DacEncoderBlock<B> {
+    pub fn init(&self, config: &DacConfig, device: &Device) -> DacEncoderBlock {
         let dimension = config.encoder_hidden_size * 2_usize.pow(self.stride_index as u32);
         let padding = (self.stride as f32 / 2.0).ceil() as usize;
         DacEncoderBlock {
@@ -124,16 +124,16 @@ impl DacEncoderBlockConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct DacDecoderBlock<B: Backend> {
-    snake1: Snake1d<B>,
-    conv_t1: ConvTranspose1d<B>,
-    res_unit1: DacResidualUnit<B>,
-    res_unit2: DacResidualUnit<B>,
-    res_unit3: DacResidualUnit<B>,
+pub struct DacDecoderBlock {
+    snake1: Snake1d,
+    conv_t1: ConvTranspose1d,
+    res_unit1: DacResidualUnit,
+    res_unit2: DacResidualUnit,
+    res_unit3: DacResidualUnit,
 }
 
-impl<B: Backend> DacDecoderBlock<B> {
-    pub fn forward(&self, mut hidden_state: Tensor<B, 3>) -> Tensor<B, 3> {
+impl DacDecoderBlock {
+    pub fn forward(&self, mut hidden_state: Tensor<3>) -> Tensor<3> {
         hidden_state = self.snake1.forward(hidden_state);
         hidden_state = self.conv_t1.forward(hidden_state);
         hidden_state = self.res_unit1.forward(hidden_state);
@@ -151,7 +151,7 @@ pub struct DacDecoderBlockConfig {
 }
 
 impl DacDecoderBlockConfig {
-    pub fn init<B: Backend>(&self, config: &DacConfig, device: &B::Device) -> DacDecoderBlock<B> {
+    pub fn init(&self, config: &DacConfig, device: &Device) -> DacDecoderBlock {
         let input_dim = config.decoder_hidden_size / 2_usize.pow(self.stride_index as u32);
         let output_dim = config.decoder_hidden_size / 2_usize.pow(self.stride_index as u32 + 1);
         let padding = (self.stride as f64 / 2.0).ceil() as usize;

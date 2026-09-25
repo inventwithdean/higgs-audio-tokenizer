@@ -1,12 +1,8 @@
 use burn::{
-    Tensor,
-    config::Config,
-    module::Module,
-    nn::{
+    Tensor, config::Config, module::Module, nn::{
         PaddingConfig1d,
         conv::{Conv1d, Conv1dConfig},
-    },
-    tensor::backend::Backend,
+    }, tensor::Device,
 };
 
 use crate::dac::{
@@ -15,15 +11,15 @@ use crate::dac::{
 };
 
 #[derive(Module, Debug)]
-pub struct DacEncoder<B: Backend> {
-    conv1: Conv1d<B>,
-    block: Vec<DacEncoderBlock<B>>,
-    snake1: Snake1d<B>,
-    conv2: Conv1d<B>,
+pub struct DacEncoder {
+    conv1: Conv1d,
+    block: Vec<DacEncoderBlock>,
+    snake1: Snake1d,
+    conv2: Conv1d,
 }
 
-impl<B: Backend> DacEncoder<B> {
-    pub fn forward(&self, mut hidden_state: Tensor<B, 3>) -> Tensor<B, 3> {
+impl DacEncoder {
+    pub fn forward(&self, mut hidden_state: Tensor<3>) -> Tensor<3> {
         hidden_state = self.conv1.forward(hidden_state);
         for layer in &self.block {
             hidden_state = layer.forward(hidden_state);
@@ -37,7 +33,7 @@ impl<B: Backend> DacEncoder<B> {
 pub struct DacEncoderConfig {}
 
 impl DacEncoderConfig {
-    pub fn init<B: Backend>(&self, config: &DacConfig, device: &B::Device) -> DacEncoder<B> {
+    pub fn init(&self, config: &DacConfig, device: &Device) -> DacEncoder {
         let d_model =
             config.encoder_hidden_size * 2_usize.pow(config.downsampling_ratios.len() as u32);
         let mut blocks = vec![];

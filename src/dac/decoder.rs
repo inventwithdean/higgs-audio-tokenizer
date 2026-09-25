@@ -1,12 +1,8 @@
 use burn::{
-    Tensor,
-    config::Config,
-    module::Module,
-    nn::{
+    Tensor, config::Config, module::Module, nn::{
         PaddingConfig1d,
         conv::{Conv1d, Conv1dConfig},
-    },
-    tensor::backend::Backend,
+    }, tensor::Device,
 };
 
 use crate::dac::{
@@ -19,15 +15,15 @@ use crate::dac::{
 // No tanh activation in the final decoder output
 
 #[derive(Module, Debug)]
-pub struct DacDecoder<B: Backend> {
-    conv1: Conv1d<B>,
-    block: Vec<DacDecoderBlock<B>>,
-    snake1: Snake1d<B>,
-    conv2: Conv1d<B>,
+pub struct DacDecoder {
+    conv1: Conv1d,
+    block: Vec<DacDecoderBlock>,
+    snake1: Snake1d,
+    conv2: Conv1d,
 }
 
-impl<B: Backend> DacDecoder<B> {
-    pub fn forward(&self, mut hidden_state: Tensor<B, 3>) -> Tensor<B, 3> {
+impl DacDecoder {
+    pub fn forward(&self, mut hidden_state: Tensor<3>) -> Tensor<3> {
         hidden_state = self.conv1.forward(hidden_state);
         for layer in &self.block {
             hidden_state = layer.forward(hidden_state);
@@ -41,7 +37,7 @@ impl<B: Backend> DacDecoder<B> {
 pub struct DacDecoderConfig {}
 
 impl DacDecoderConfig {
-    pub fn init<B: Backend>(&self, config: &DacConfig, device: &B::Device) -> DacDecoder<B> {
+    pub fn init(&self, config: &DacConfig, device: &Device) -> DacDecoder {
         let input_channel = config.hidden_size;
         let channels = config.decoder_hidden_size;
 

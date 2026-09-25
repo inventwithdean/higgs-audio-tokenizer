@@ -1,6 +1,9 @@
 #![recursion_limit = "256"]
 
-use burn::{Tensor, backend::Wgpu, tensor::TensorData};
+use burn::{
+    Tensor,
+    tensor::{Device, TensorData},
+};
 use burn_store::{ModuleSnapshot, PyTorchToBurnAdapter, SafetensorsStore};
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 
@@ -15,7 +18,7 @@ mod tokenizer;
 use audioadapter::Adapter;
 use audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Resampler, audioadapter};
-use std::error::Error;
+use std::{error::Error, time::Instant};
 
 pub fn resample_audio(
     input: &[f32],
@@ -45,12 +48,10 @@ pub fn resample_audio(
 }
 
 fn main() {
-    type MyBackend = Wgpu<f32, i32>;
-    let device = Default::default();
+    let device = Device::wgpu(Default::default());
     let model_config = config::get_config();
 
-    let mut tokenizer =
-        HiggsAudioV2TokenizerModelConfig::new().init::<MyBackend>(&model_config, &device);
+    let mut tokenizer = HiggsAudioV2TokenizerModelConfig::new().init(&model_config, &device);
 
     println!("{:?}", tokenizer);
 
@@ -105,11 +106,12 @@ fn main() {
         }
     }
 
-    let input_tensor = Tensor::<MyBackend, 3>::from_data(
+    let input_tensor = Tensor::<3>::from_data(
         TensorData::new(planar_samples, [1, num_channels, num_frames]),
         &device,
     );
 
+    let timer = Instant::now();
     let codes = tokenizer.encode(input_tensor);
 
     println!("Tokens shape: {:?}", codes.shape());
@@ -117,6 +119,8 @@ fn main() {
     let reconstructed_tensor = tokenizer.decode(codes);
 
     let recon_data = reconstructed_tensor.to_data();
+    println!("Total execution time: {:?}", timer.elapsed());
+    
     let recon_slice = recon_data.as_slice::<f32>().unwrap();
 
     let out_spec = WavSpec {

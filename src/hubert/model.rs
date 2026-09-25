@@ -1,5 +1,5 @@
 // Reference: https://github.com/huggingface/transformers/blob/main/src/transformers/models/hubert/modular_hubert.py
-use burn::{Tensor, config::Config, module::Module, tensor::backend::Backend};
+use burn::{Tensor, config::Config, module::Module, tensor::Device};
 
 use crate::hubert::{
     config::HubertConfig,
@@ -10,14 +10,14 @@ use crate::hubert::{
 };
 
 #[derive(Module, Debug)]
-pub struct HubertModel<B: Backend> {
-    feature_extractor: Wav2Vec2FeatureEncoder<B>,
-    feature_projection: Wav2Vec2FeatureProjection<B>,
-    encoder: Wav2Vec2Encoder<B>,
+pub struct HubertModel {
+    feature_extractor: Wav2Vec2FeatureEncoder,
+    feature_projection: Wav2Vec2FeatureProjection,
+    encoder: Wav2Vec2Encoder,
 }
 
-impl<B: Backend> HubertModel<B> {
-    pub fn forward(&self, input_values: Tensor<B, 3>) -> Vec<Tensor<B, 3>> {
+impl HubertModel {
+    pub fn forward(&self, input_values: Tensor<3>) -> Vec<Tensor<3>> {
         // input_values: (B, C, T)
         let mut extract_features = self.feature_extractor.forward(input_values);
         extract_features = extract_features.transpose(); // (B, T, C)
@@ -30,7 +30,7 @@ impl<B: Backend> HubertModel<B> {
 pub struct HubertModelConfig {}
 
 impl HubertModelConfig {
-    pub fn init<B: Backend>(&self, config: &HubertConfig, device: &B::Device) -> HubertModel<B> {
+    pub fn init(&self, config: &HubertConfig, device: &Device) -> HubertModel {
         HubertModel {
             feature_extractor: Wav2Vec2FeatureEncoderConfig::new().init(config, device),
             feature_projection: Wav2Vec2FeatureProjectionConfig::new().init(config, device),

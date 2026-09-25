@@ -3,18 +3,18 @@ use burn::{
     config::Config,
     module::{Module, Param},
     nn::{Linear, LinearConfig},
-    tensor::{Int, backend::Backend, module::embedding, s},
+    tensor::{Device, Int, module::embedding, s},
 };
 
 use crate::config::HiggsAudioV2TokenizerConfig;
 
 #[derive(Module, Debug)]
-pub struct HiggsAudioV2TokenizerEuclideanCodebook<B: Backend> {
-    embed: Param<Tensor<B, 2>>,
+pub struct HiggsAudioV2TokenizerEuclideanCodebook {
+    embed: Param<Tensor<2>>,
 }
 
-impl<B: Backend> HiggsAudioV2TokenizerEuclideanCodebook<B> {
-    pub fn quantize(&self, hidden_states: Tensor<B, 2>) -> Tensor<B, 2, Int> {
+impl HiggsAudioV2TokenizerEuclideanCodebook {
+    pub fn quantize(&self, hidden_states: Tensor<2>) -> Tensor<2, Int> {
         let embed = self.embed.val().t();
         let scaled_states = hidden_states.clone().powf_scalar(2.0).sum_dim(1);
         let dist = scaled_states - hidden_states.matmul(embed.clone()).mul_scalar(2.0)
@@ -23,14 +23,14 @@ impl<B: Backend> HiggsAudioV2TokenizerEuclideanCodebook<B> {
         (-dist).max_dim_with_indices(1).1
     }
 
-    pub fn encode(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 2, Int> {
+    pub fn encode(&self, hidden_states: Tensor<3>) -> Tensor<2, Int> {
         let [b, t, c] = hidden_states.dims();
         let hidden_states = hidden_states.reshape([b * t, c]);
         let embed_ind = self.quantize(hidden_states);
         embed_ind.reshape([b, t]) // (b, t, 1) reshaped to (b, t)
     }
 
-    pub fn decode(&self, embed_ind: Tensor<B, 2, Int>) -> Tensor<B, 3> {
+    pub fn decode(&self, embed_ind: Tensor<2, Int>) -> Tensor<3> {
         embedding(self.embed.val(), embed_ind)
     }
 }
@@ -39,11 +39,11 @@ impl<B: Backend> HiggsAudioV2TokenizerEuclideanCodebook<B> {
 pub struct HiggsAudioV2TokenizerEuclideanCodebookConfig {}
 
 impl HiggsAudioV2TokenizerEuclideanCodebookConfig {
-    pub fn init<B: Backend>(
+    pub fn init(
         &self,
         config: &HiggsAudioV2TokenizerConfig,
-        device: &B::Device,
-    ) -> HiggsAudioV2TokenizerEuclideanCodebook<B> {
+        device: &Device,
+    ) -> HiggsAudioV2TokenizerEuclideanCodebook {
         HiggsAudioV2TokenizerEuclideanCodebook {
             embed: Param::from_tensor(Tensor::zeros(
                 [config.codebook_size, config.codebook_dim],
@@ -54,20 +54,20 @@ impl HiggsAudioV2TokenizerEuclideanCodebookConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct HiggsAudioV2TokenizerVectorQuantization<B: Backend> {
-    codebook: HiggsAudioV2TokenizerEuclideanCodebook<B>,
-    project_in: Linear<B>,
-    project_out: Linear<B>,
+pub struct HiggsAudioV2TokenizerVectorQuantization {
+    codebook: HiggsAudioV2TokenizerEuclideanCodebook,
+    project_in: Linear,
+    project_out: Linear,
 }
 
-impl<B: Backend> HiggsAudioV2TokenizerVectorQuantization<B> {
-    pub fn encode(&self, mut hidden_states: Tensor<B, 3>) -> Tensor<B, 2, Int> {
+impl HiggsAudioV2TokenizerVectorQuantization {
+    pub fn encode(&self, mut hidden_states: Tensor<3>) -> Tensor<2, Int> {
         hidden_states = hidden_states.transpose();
         hidden_states = self.project_in.forward(hidden_states);
         self.codebook.encode(hidden_states)
     }
 
-    pub fn decode(&self, embed_ind: Tensor<B, 2, Int>) -> Tensor<B, 3> {
+    pub fn decode(&self, embed_ind: Tensor<2, Int>) -> Tensor<3> {
         let mut quantize = self.codebook.decode(embed_ind);
         quantize = self.project_out.forward(quantize);
         quantize.transpose()
@@ -78,11 +78,11 @@ impl<B: Backend> HiggsAudioV2TokenizerVectorQuantization<B> {
 pub struct HiggsAudioV2TokenizerVectorQuantizationConfig {}
 
 impl HiggsAudioV2TokenizerVectorQuantizationConfig {
-    pub fn init<B: Backend>(
+    pub fn init(
         &self,
         config: &HiggsAudioV2TokenizerConfig,
-        device: &B::Device,
-    ) -> HiggsAudioV2TokenizerVectorQuantization<B> {
+        device: &Device,
+    ) -> HiggsAudioV2TokenizerVectorQuantization {
         let hidden_size =
             config.acoustic_model_config.hidden_size + config.semantic_model_config.hidden_size;
         HiggsAudioV2TokenizerVectorQuantization {
@@ -94,12 +94,12 @@ impl HiggsAudioV2TokenizerVectorQuantizationConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct HiggsAudioV2TokenizerResidualVectorQuantization<B: Backend> {
-    quantizers: Vec<HiggsAudioV2TokenizerVectorQuantization<B>>,
+pub struct HiggsAudioV2TokenizerResidualVectorQuantization {
+    quantizers: Vec<HiggsAudioV2TokenizerVectorQuantization>,
 }
 
-impl<B: Backend> HiggsAudioV2TokenizerResidualVectorQuantization<B> {
-    pub fn encode(&self, embeddings: Tensor<B, 3>) -> Tensor<B, 3, Int> {
+impl HiggsAudioV2TokenizerResidualVectorQuantization {
+    pub fn encode(&self, embeddings: Tensor<3>) -> Tensor<3, Int> {
         // Hardcoding here.
         let num_quantizers = 8;
         let mut residual = embeddings.clone();
@@ -115,10 +115,10 @@ impl<B: Backend> HiggsAudioV2TokenizerResidualVectorQuantization<B> {
         Tensor::stack(all_indices, 1)
     }
 
-    pub fn decode(&self, codes: Tensor<B, 3, Int>) -> Tensor<B, 3> {
+    pub fn decode(&self, codes: Tensor<3, Int>) -> Tensor<3> {
         // codes: (B, num_quantizers, T)
         let [_b, num_quantizers, _t] = codes.dims();
-        let mut quantized_out: Option<Tensor<B, 3>> = None;
+        let mut quantized_out: Option<Tensor<3>> = None;
 
         for i in 0..num_quantizers {
             let quantizer = &self.quantizers[i];
@@ -138,11 +138,11 @@ impl<B: Backend> HiggsAudioV2TokenizerResidualVectorQuantization<B> {
 pub struct HiggsAudioV2TokenizerResidualVectorQuantizationConfig {}
 
 impl HiggsAudioV2TokenizerResidualVectorQuantizationConfig {
-    pub fn init<B: Backend>(
+    pub fn init(
         &self,
         config: &HiggsAudioV2TokenizerConfig,
-        device: &B::Device,
-    ) -> HiggsAudioV2TokenizerResidualVectorQuantization<B> {
+        device: &Device,
+    ) -> HiggsAudioV2TokenizerResidualVectorQuantization {
         let target_bandwidth = config
             .target_bandwidths
             .last()

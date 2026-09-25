@@ -6,6 +6,17 @@ A pure Rust implementation of the **Higgs Audio V2 Tokenizer** neural audio code
 
 This repository ports the Boson AI's [`HiggsAudioV2Tokenizer`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py) architecture to Rust. It leverages Burn's modular neural network APIs and hardware-agnostic backends (using WGPU for GPU acceleration by default) to perform robust audio compression and reconstruction.
 
+## Speed Comparison (end-to-end)
+
+| Burn (wgpu) | PyTorch CUDA | PyTorch CPU
+| --- | --- | --- |
+| ~397ms | ~378ms | ~1064ms
+
+> Tested on RTX 4060Ti 8G
+
+#### Rust's binary takes virtually no time to start, while Python has to load heavy PyTorch binaries. So let's not compare cold starts.
+
+
 ## Features
 
 * **End-to-End Pipeline:** Full encoding (audio -> tokens) and decoding (tokens -> audio) capabilities.

@@ -8,8 +8,8 @@ use burn::{
         conv::{Conv1d, Conv1dConfig},
     },
     tensor::{
+        Device,
         activation::{gelu, softmax},
-        backend::Backend,
         module::conv1d,
         ops::ConvOptions,
         s,
@@ -21,13 +21,13 @@ use crate::hubert::config::HubertConfig;
 // Combined Wav2Vec2GroupNormConvLayer and Wav2Vec2NoLayerNormConvLayer
 // as the only difference is the layer_norm. Burn will automatically plug in weights during loading.
 #[derive(Module, Debug)]
-pub struct Wav2Vec2ConvLayer<B: Backend> {
-    conv: Conv1d<B>,
-    layer_norm: Option<GroupNorm<B>>,
+pub struct Wav2Vec2ConvLayer {
+    conv: Conv1d,
+    layer_norm: Option<GroupNorm>,
 }
 
-impl<B: Backend> Wav2Vec2ConvLayer<B> {
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
+impl Wav2Vec2ConvLayer {
+    pub fn forward(&self, hidden_states: Tensor<3>) -> Tensor<3> {
         let mut hidden_states = self.conv.forward(hidden_states);
         if let Some(layer_norm) = &self.layer_norm {
             hidden_states = layer_norm.forward(hidden_states);
@@ -41,13 +41,13 @@ impl<B: Backend> Wav2Vec2ConvLayer<B> {
 pub struct Wav2Vec2ConvLayerConfig {}
 
 impl Wav2Vec2ConvLayerConfig {
-    pub fn init<B: Backend>(
+    pub fn init(
         &self,
         layer_id: usize,
         layer_norm: bool,
         config: &HubertConfig,
-        device: &B::Device,
-    ) -> Wav2Vec2ConvLayer<B> {
+        device: &Device,
+    ) -> Wav2Vec2ConvLayer {
         let in_conv_dim = if layer_id > 0 {
             config.conv_dim[layer_id - 1]
         } else {
@@ -73,12 +73,12 @@ impl Wav2Vec2ConvLayerConfig {
 
 // feat_extract_norm = "group"
 #[derive(Module, Debug)]
-pub struct Wav2Vec2FeatureEncoder<B: Backend> {
-    conv_layers: Vec<Wav2Vec2ConvLayer<B>>,
+pub struct Wav2Vec2FeatureEncoder {
+    conv_layers: Vec<Wav2Vec2ConvLayer>,
 }
 
-impl<B: Backend> Wav2Vec2FeatureEncoder<B> {
-    pub fn forward(&self, input_values: Tensor<B, 3>) -> Tensor<B, 3> {
+impl Wav2Vec2FeatureEncoder {
+    pub fn forward(&self, input_values: Tensor<3>) -> Tensor<3> {
         let mut hidden_states = input_values;
         for conv_layer in &self.conv_layers {
             hidden_states = conv_layer.forward(hidden_states);
@@ -91,11 +91,7 @@ impl<B: Backend> Wav2Vec2FeatureEncoder<B> {
 pub struct Wav2Vec2FeatureEncoderConfig {}
 
 impl Wav2Vec2FeatureEncoderConfig {
-    pub fn init<B: Backend>(
-        &self,
-        config: &HubertConfig,
-        device: &B::Device,
-    ) -> Wav2Vec2FeatureEncoder<B> {
+    pub fn init(&self, config: &HubertConfig, device: &Device) -> Wav2Vec2FeatureEncoder {
         let mut conv_layers = vec![Wav2Vec2ConvLayerConfig::new().init(0, true, config, device)];
         let num_feat_extract_layers = config.num_feat_extract_layers;
         for i in 1..num_feat_extract_layers {
@@ -106,15 +102,15 @@ impl Wav2Vec2FeatureEncoderConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct Wav2Vec2FeatureProjection<B: Backend> {
-    layer_norm: LayerNorm<B>,
-    projection: Linear<B>,
+pub struct Wav2Vec2FeatureProjection {
+    layer_norm: LayerNorm,
+    projection: Linear,
 }
 
-impl<B: Backend> Wav2Vec2FeatureProjection<B> {
+impl Wav2Vec2FeatureProjection {
     // ⚠️: layer_norm expects (B, T, C) not (B, C, T)
     // Make sure to transpose before calling this forward
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
+    pub fn forward(&self, hidden_states: Tensor<3>) -> Tensor<3> {
         let norm_hidden_states = self.layer_norm.forward(hidden_states);
         self.projection.forward(norm_hidden_states)
     }
@@ -124,11 +120,7 @@ impl<B: Backend> Wav2Vec2FeatureProjection<B> {
 pub struct Wav2Vec2FeatureProjectionConfig {}
 
 impl Wav2Vec2FeatureProjectionConfig {
-    pub fn init<B: Backend>(
-        &self,
-        config: &HubertConfig,
-        device: &B::Device,
-    ) -> Wav2Vec2FeatureProjection<B> {
+    pub fn init(&self, config: &HubertConfig, device: &Device) -> Wav2Vec2FeatureProjection {
         let d_model = config
             .conv_dim
             .last()
@@ -149,15 +141,15 @@ impl Wav2Vec2FeatureProjectionConfig {
 // embed_dim = 768
 // head_dim = embed_dim // num_heads = 768 // 12 = 64
 #[derive(Module, Debug)]
-pub struct Wav2Vec2Attention<B: Backend> {
-    k_proj: Linear<B>,
-    v_proj: Linear<B>,
-    q_proj: Linear<B>,
-    out_proj: Linear<B>,
+pub struct Wav2Vec2Attention {
+    k_proj: Linear,
+    v_proj: Linear,
+    q_proj: Linear,
+    out_proj: Linear,
 }
 
-impl<B: Backend> Wav2Vec2Attention<B> {
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
+impl Wav2Vec2Attention {
+    pub fn forward(&self, hidden_states: Tensor<3>) -> Tensor<3> {
         // hidden_states: [B, T, 768]
         let [b, t, embed_dim] = hidden_states.dims();
         let keys = self.k_proj.forward(hidden_states.clone()); // (B, T, 768)
@@ -194,11 +186,7 @@ impl<B: Backend> Wav2Vec2Attention<B> {
 pub struct Wav2Vec2AttentionConfig {}
 
 impl Wav2Vec2AttentionConfig {
-    pub fn init<B: Backend>(
-        &self,
-        config: &HubertConfig,
-        device: &B::Device,
-    ) -> Wav2Vec2Attention<B> {
+    pub fn init(&self, config: &HubertConfig, device: &Device) -> Wav2Vec2Attention {
         let embed_dim = config.hidden_size;
         Wav2Vec2Attention {
             k_proj: LinearConfig::new(embed_dim, embed_dim).init(device),
@@ -211,13 +199,13 @@ impl Wav2Vec2AttentionConfig {
 
 // hidden_act = gelu
 #[derive(Module, Debug)]
-pub struct Wav2Vec2FeedForward<B: Backend> {
-    intermediate_dense: Linear<B>,
-    output_dense: Linear<B>,
+pub struct Wav2Vec2FeedForward {
+    intermediate_dense: Linear,
+    output_dense: Linear,
 }
 
-impl<B: Backend> Wav2Vec2FeedForward<B> {
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
+impl Wav2Vec2FeedForward {
+    pub fn forward(&self, hidden_states: Tensor<3>) -> Tensor<3> {
         let mut hidden_states = self.intermediate_dense.forward(hidden_states);
         hidden_states = gelu(hidden_states);
         self.output_dense.forward(hidden_states)
@@ -228,11 +216,7 @@ impl<B: Backend> Wav2Vec2FeedForward<B> {
 pub struct Wav2Vec2FeedForwardConfig {}
 
 impl Wav2Vec2FeedForwardConfig {
-    pub fn init<B: Backend>(
-        &self,
-        config: &HubertConfig,
-        device: &B::Device,
-    ) -> Wav2Vec2FeedForward<B> {
+    pub fn init(&self, config: &HubertConfig, device: &Device) -> Wav2Vec2FeedForward {
         let intermediate_size = config.intermediate_size;
         let hidden_size = config.hidden_size;
         Wav2Vec2FeedForward {
@@ -243,15 +227,15 @@ impl Wav2Vec2FeedForwardConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct Wav2Vec2EncoderLayer<B: Backend> {
-    attention: Wav2Vec2Attention<B>,
-    layer_norm: LayerNorm<B>,
-    feed_forward: Wav2Vec2FeedForward<B>,
-    final_layer_norm: LayerNorm<B>,
+pub struct Wav2Vec2EncoderLayer {
+    attention: Wav2Vec2Attention,
+    layer_norm: LayerNorm,
+    feed_forward: Wav2Vec2FeedForward,
+    final_layer_norm: LayerNorm,
 }
 
-impl<B: Backend> Wav2Vec2EncoderLayer<B> {
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
+impl Wav2Vec2EncoderLayer {
+    pub fn forward(&self, hidden_states: Tensor<3>) -> Tensor<3> {
         let attn_residual = hidden_states.clone();
         let mut hidden_states = self.attention.forward(hidden_states);
         hidden_states = hidden_states + attn_residual;
@@ -266,11 +250,7 @@ impl<B: Backend> Wav2Vec2EncoderLayer<B> {
 pub struct Wav2Vec2EncoderLayerConfig {}
 
 impl Wav2Vec2EncoderLayerConfig {
-    pub fn init<B: Backend>(
-        &self,
-        config: &HubertConfig,
-        device: &B::Device,
-    ) -> Wav2Vec2EncoderLayer<B> {
+    pub fn init(&self, config: &HubertConfig, device: &Device) -> Wav2Vec2EncoderLayer {
         let embed_dim = config.hidden_size;
         let eps = config.layer_norm_eps;
         Wav2Vec2EncoderLayer {
@@ -287,26 +267,26 @@ impl Wav2Vec2EncoderLayerConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct WeightParametrization<B: Backend> {
-    pub original0: Param<Tensor<B, 3>>, // g: [1, 1, kernel_size]
-    pub original1: Param<Tensor<B, 3>>, // v: [out_channels, in_channels/groups, kernel_size]
+pub struct WeightParametrization {
+    pub original0: Param<Tensor<3>>, // g: [1, 1, kernel_size]
+    pub original1: Param<Tensor<3>>, // v: [out_channels, in_channels/groups, kernel_size]
 }
 
 #[derive(Module, Debug)]
-pub struct Parametrizations<B: Backend> {
-    pub weight: WeightParametrization<B>,
+pub struct Parametrizations {
+    pub weight: WeightParametrization,
 }
 
 #[derive(Module, Debug)]
-pub struct WeightNormConv1d<B: Backend> {
-    pub parametrizations: Parametrizations<B>,
-    pub bias: Param<Tensor<B, 1>>,
+pub struct WeightNormConv1d {
+    pub parametrizations: Parametrizations,
+    pub bias: Param<Tensor<1>>,
     pub groups: usize,
     pub padding: usize,
 }
 
-impl<B: Backend> WeightNormConv1d<B> {
-    pub fn forward(&self, x: Tensor<B, 3>) -> Tensor<B, 3> {
+impl WeightNormConv1d {
+    pub fn forward(&self, x: Tensor<3>) -> Tensor<3> {
         let g = self.parametrizations.weight.original0.val();
         let v = self.parametrizations.weight.original1.val();
 
@@ -328,7 +308,7 @@ pub struct WeightNormConv1dConfig {
 }
 
 impl WeightNormConv1dConfig {
-    pub fn init<B: Backend>(&self, device: &B::Device) -> WeightNormConv1d<B> {
+    pub fn init(&self, device: &Device) -> WeightNormConv1d {
         let in_channels_per_group = self.channels / self.groups;
 
         let original1 = Tensor::zeros(
@@ -354,15 +334,15 @@ impl WeightNormConv1dConfig {
 
 // feat_extract_activation = gelu
 #[derive(Module, Debug)]
-pub struct Wav2Vec2PositionalConvEmbedding<B: Backend> {
+pub struct Wav2Vec2PositionalConvEmbedding {
     // ⚠️: Original safetensors model stores them as weight_v (The Filter Shape) and weight_g (The Magnitude) by the name original1 and original0
     // When converting to safetensors, make sure to remove parametrizations
     // Actually, updated to calculate the conv at runtime so don't have to convert safetensors
-    conv: WeightNormConv1d<B>,
+    conv: WeightNormConv1d,
 }
 
-impl<B: Backend> Wav2Vec2PositionalConvEmbedding<B> {
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Tensor<B, 3> {
+impl Wav2Vec2PositionalConvEmbedding {
+    pub fn forward(&self, hidden_states: Tensor<3>) -> Tensor<3> {
         let mut hidden_states = hidden_states.transpose();
         hidden_states = self.conv.forward(hidden_states);
         // Removed Wav2Vec2SamePadLayer and doing its operation directly
@@ -376,11 +356,7 @@ impl<B: Backend> Wav2Vec2PositionalConvEmbedding<B> {
 pub struct Wav2Vec2PositionalConvEmbeddingConfig {}
 
 impl Wav2Vec2PositionalConvEmbeddingConfig {
-    pub fn init<B: Backend>(
-        &self,
-        config: &HubertConfig,
-        device: &B::Device,
-    ) -> Wav2Vec2PositionalConvEmbedding<B> {
+    pub fn init(&self, config: &HubertConfig, device: &Device) -> Wav2Vec2PositionalConvEmbedding {
         let hidden_size = config.hidden_size;
         let kernel_size = config.num_conv_pos_embeddings;
         let padding = (config.num_conv_pos_embeddings as u32 / 2) as usize;
@@ -393,14 +369,14 @@ impl Wav2Vec2PositionalConvEmbeddingConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct Wav2Vec2Encoder<B: Backend> {
-    pos_conv_embed: Wav2Vec2PositionalConvEmbedding<B>,
-    layer_norm: LayerNorm<B>,
-    layers: Vec<Wav2Vec2EncoderLayer<B>>,
+pub struct Wav2Vec2Encoder {
+    pos_conv_embed: Wav2Vec2PositionalConvEmbedding,
+    layer_norm: LayerNorm,
+    layers: Vec<Wav2Vec2EncoderLayer>,
 }
 
-impl<B: Backend> Wav2Vec2Encoder<B> {
-    pub fn forward(&self, hidden_states: Tensor<B, 3>) -> Vec<Tensor<B, 3>> {
+impl Wav2Vec2Encoder {
+    pub fn forward(&self, hidden_states: Tensor<3>) -> Vec<Tensor<3>> {
         let position_embeddings = self.pos_conv_embed.forward(hidden_states.clone());
         let mut hidden_states = hidden_states + position_embeddings;
         hidden_states = self.layer_norm.forward(hidden_states);
@@ -420,11 +396,7 @@ impl<B: Backend> Wav2Vec2Encoder<B> {
 pub struct Wav2Vec2EncoderConfig {}
 
 impl Wav2Vec2EncoderConfig {
-    pub fn init<B: Backend>(
-        &self,
-        config: &HubertConfig,
-        device: &B::Device,
-    ) -> Wav2Vec2Encoder<B> {
+    pub fn init(&self, config: &HubertConfig, device: &Device) -> Wav2Vec2Encoder {
         let hidden_size = config.hidden_size;
         let eps = config.layer_norm_eps;
         let num_hidden_layers = config.num_hidden_layers;
