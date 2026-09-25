@@ -68,6 +68,7 @@ The application will:
 
 6. Save the result to `reconstructed.wav` in a 32-bit float format.
 
+TODO: Convert this to a usable crate
 
 ## License
 
