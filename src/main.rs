@@ -18,7 +18,7 @@ mod tokenizer;
 use audioadapter::Adapter;
 use audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Resampler, audioadapter};
-use std::{error::Error, time::Instant};
+use std::{error::Error, time::Instant, vec};
 
 pub fn resample_audio(
     input: &[f32],
@@ -26,6 +26,9 @@ pub fn resample_audio(
     target_rate: usize,
     channels: usize,
 ) -> Result<Vec<f32>, Box<dyn Error + Send + Sync>> {
+    if source_rate == target_rate {
+        return Ok(input.to_vec());
+    }
     let input_frames = input.len() / channels;
 
     let mut resampler = Fft::<f32>::new(source_rate, target_rate, 1024, channels, FixedSync::Both)?;
@@ -120,12 +123,12 @@ fn main() {
 
     let recon_data = reconstructed_tensor.to_data();
     println!("Total execution time: {:?}", timer.elapsed());
-    
+
     let recon_slice = recon_data.as_slice::<f32>().unwrap();
 
     let out_spec = WavSpec {
         channels: num_channels as u16,
-        sample_rate: spec.sample_rate,
+        sample_rate: target_base_rate as u32,
         bits_per_sample: 32,
         sample_format: SampleFormat::Float,
     };

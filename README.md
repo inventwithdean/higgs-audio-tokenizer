@@ -10,7 +10,7 @@ This repository ports the Boson AI's [`HiggsAudioV2Tokenizer`](https://github.co
 
 | Burn (wgpu) | PyTorch CUDA | PyTorch CPU
 | --- | --- | --- |
-| ~397ms | ~378ms | ~1064ms
+| ~496ms | ~663ms | ~7640ms
 
 > Tested on RTX 4060Ti 8G
 

@@ -70,9 +70,16 @@ impl HiggsAudioV2TokenizerModel {
     pub fn encode(&self, input_values: Tensor<3>) -> Tensor<3, Int> {
         // input_values: (B, 1, T)
         let e_semantic_input = self.extract_semantic_features(input_values.clone()); // (B, T, C)
-        let e_semantic = self.encoder_semantic.forward(e_semantic_input.transpose());
+        let mut e_semantic = self.encoder_semantic.forward(e_semantic_input.transpose());
 
-        let e_acoustic = self.acoustic_encoder.forward(input_values);
+        let mut e_acoustic = self.acoustic_encoder.forward(input_values);
+
+        let t_semantic = e_semantic.dims()[2];
+        let t_acoustic = e_acoustic.dims()[2];
+        let min_len = std::cmp::min(t_semantic, t_acoustic);
+        
+        e_semantic = e_semantic.slice(s![.., .., 0..min_len]);
+        e_acoustic = e_acoustic.slice(s![.., .., 0..min_len]);
 
         let mut embeddings = Tensor::cat(vec![e_acoustic, e_semantic], 1); // (B, hidden_size, T)
         embeddings = self.fc.forward(embeddings.transpose()).transpose(); // (B, hidden_size, T)
