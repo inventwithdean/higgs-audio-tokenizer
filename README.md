@@ -12,7 +12,7 @@ This repository ports the Boson AI's [`HiggsAudioV2Tokenizer`](https://github.co
 | --- | --- | --- |
 | ~496ms | ~663ms | ~7640ms
 
-> Tested on RTX 4060Ti 8G
+> Tested on RTX 4060Ti 8G, FP32 precision.
 
 **Cold Starts**: Rust's binary takes virtually no time to start, while Python has to load heavy PyTorch binaries. So let's not compare them.
 
