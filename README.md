@@ -8,11 +8,11 @@ This repository ports the Boson AI's [`HiggsAudioV2Tokenizer`](https://github.co
 
 ## Speed Comparison (end-to-end)
 
-| Burn (wgpu w/ fusion) | PyTorch CUDA | PyTorch CPU
-| --- | --- | --- |
-| ~496ms | ~663ms | ~7640ms
+Burn (wgpu) | Burn (wgpu w/ fusion) | PyTorch CUDA | PyTorch CPU
+| --- | --- | --- | --- |
+~1333ms | ~470ms | ~517ms | ~4513ms
 
-> Tested on RTX 4060Ti 8G, FP32 precision.
+> Tested on RTX 4060Ti 8G, FP32 precision using the included `test.wav`
 
 **Cold Starts**: Rust's binary takes virtually no time to start, while Python has to load heavy PyTorch binaries. So let's not compare them.
 
